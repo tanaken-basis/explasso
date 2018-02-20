@@ -1,43 +1,24 @@
 ## ExpLasso (The Group Lasso for Design of Experiments)
 ## tanaken (Kentaro TANAKA, 2016.02-)
-## このプログラムの使用により何らかの損害が生じたとしてもtanakenは一切責任を負いません。
 ## Use this program at your own risk.
 
-## pを全候補の数(model_matの列数, candidates_num)とする。
-## aを不偏推定したい回帰係数の数とする。
-## そのうちh1を不偏推定したい(等式制約)回帰係数の数とする。
-## そのうちh2を不偏推定したい(不等式制約)回帰係数の数とする。
-## そのうちsを不偏推定したい(ペナルティ)回帰係数の数とする。
-## つまり、a = h1 + h2 + s。
-## このlassoでは、a*p個の変数がある。
-## 2次錘問題にすると、a*p + 2*a + p + 2*s 個の変数になる。
-## 1項目 = lassoの変数がa*p 個。
-## 2項目 = 各推定量の分散の和の計算で2*a個使用。
-## 3項目 = L1ノルムがp個。
-## 4項目 = ペナルティのための変数が2*s個。
-
-## estimation_eq_index_list, estimation_pen_index_list, estimation_ineq_index_list に重複が無いようにすること。
-## つまり、不偏推定したい各々の推定量に対して指定できる罰則のタイプは1つのみとする。
-## 1つ目の推定量はハードマージン(不等式制約)で、2つ目はソフトマージンという風にはできる。
-## 1つ目の推定量に対して、ハードマージン(不等式制約)とソフトマージンの両方を指定することはできない。
-## できるように改良してもいいけど、あんまり意味なさそう。
-
 ################################################################################
 ################################################################################
 ################################################################################
 
+import time
 import csv
 import copy
 import numpy as np
 from datetime import datetime
 from itertools import chain
 from cvxopt import matrix, spmatrix, sparse, spdiag, solvers
+from operator import itemgetter
 
 ################################################################################
 ################################################################################
 ################################################################################
 
-## 各因子の水準の全組み合わせ, main_design_mat作成(ここで作成せず与えられたものを使ってもいい。)
 def gen_main_design_mat(levels_list):
     factors_num = len(levels_list)
     levels_list_rev = copy.deepcopy(levels_list)
@@ -51,7 +32,6 @@ def gen_main_design_mat(levels_list):
     print(main_design_mat)
     return main_design_mat
 
-## モデル行列の生成
 def gen_model_mat(main_design_mat, model_list):
     candidates_num = np.shape(main_design_mat)[1]
     if len(model_list) >= 1:
@@ -78,55 +58,50 @@ def gen_model_mat(main_design_mat, model_list):
     print(model_mat)
     return model_mat
 
-## 射影行列
 def gen_proj_mat(mat):
-    # mat は　np.array であるとする。
     pinv_norm_mat = np.linalg.pinv(np.dot(mat.T, mat))
     return np.dot(mat, np.dot(pinv_norm_mat, mat.T))
 
-## lambda_weight_listの自動生成。直交表的な感じにする。
-def gen_lambda_weight_list(main_design_mat, scale_num):
-    factors_num = np.shape(main_design_mat)[0] # 因子数
-    candidates_num = np.shape(main_design_mat)[1] # 実験点の候補の数
-    lambda_weight_list = [0]*candidates_num
+def gen_lambda_weight_list(main_design_mat, model_list, scale_num):
+    model_mat = gen_model_mat(main_design_mat, model_list)
+    input_mat = model_mat
+    terms_num = np.shape(input_mat)[0]
+    candidates_num = np.shape(input_mat)[1]
+    lambda_weight_list = [0.]*candidates_num
     subspace_index_list = [0]
     compspace_index_list = list(range(1, candidates_num))
-    for i in range(0, factors_num): # range(0, candidates_num):
-        temp_mat = main_design_mat[:,subspace_index_list]
+    for i in range(0, terms_num):
+        temp_mat = input_mat[:,subspace_index_list]
         temp_mat = gen_proj_mat(temp_mat)
-        dist_list = [0]*len(compspace_index_list)
+        dist_list = np.repeat(0., len(compspace_index_list))
         for j in range(0, len(compspace_index_list)):
-            temp_vec = (main_design_mat[:,compspace_index_list[j]]).reshape(factors_num,1)
+            temp_vec = (input_mat[:,compspace_index_list[j]]).reshape(terms_num,1)
             dist_list[j] = np.linalg.norm(np.dot( temp_mat, temp_vec ))
+            dist_list[j] = dist_list[j]*dist_list[j]
             lambda_weight_list[compspace_index_list[j]] = lambda_weight_list[compspace_index_list[j]] + dist_list[j]
-        if i != candidates_num-1:
+        if i != terms_num-1:
             temp_index_num = compspace_index_list[np.argmin(dist_list)]
             subspace_index_list.extend([temp_index_num])
             compspace_index_list.remove(temp_index_num)
     lambda_weight_list = [scale_num*x for x in lambda_weight_list]
     return lambda_weight_list
 
-## 最適な実験計画を生成するために2次錘計画問題を解く。
-def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filepath):
-    # 各不偏推定に対する制約の種類, 使用するパラメーター
-    estimation_eq_index_list = estimation_list[0] # 不偏性を表す等式制約を課している。model_listの対応する番号を並べたリスト。
-    estimation_pen_index_list = estimation_list[1] # 不偏性からのずれに対してペナルティを課している。model_listの対応する番号を並べたリスト。
-    estimation_pen_weight_list = estimation_list[2] # 不偏性からのずれに対するペナルティへの重みを並べたリスト。
-    estimation_ineq_index_list = estimation_list[3] # 不偏性からのずれに対して不等式制約を課している。model_listの対応する番号を並べたリスト。
-    estimation_ineq_win_list = estimation_list[4] # 不偏性からのずれとして許容する値を並べたリスト。
+def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename):
+    estimation_eq_index_list = estimation_list[0]
+    estimation_pen_index_list = estimation_list[1]
+    estimation_pen_weight_list = estimation_list[2]
+    estimation_ineq_index_list = estimation_list[3]
+    estimation_ineq_win_list = estimation_list[4]
     estimators_list = list(set(list(chain.from_iterable([estimation_eq_index_list, estimation_pen_index_list, estimation_ineq_index_list]))))
     estimators_list.sort()
-    # 長さ
-    factors_num = len(levels_list) # 因子数
-    terms_num = len(model_list) # モデルの式における項の数
-    estimators_num = len(estimators_list) # 推定量の数, 重複除く
-    candidates_num = np.shape(main_design_mat)[1] # 実験点の候補の数
-    eq_const_num = len(estimation_eq_index_list) # 不偏推定のための等式制約の数。
-    penalties_num = len(estimation_pen_index_list) # 不偏推定のためのペナルティ項の数。
-    ineq_const_num = len(estimation_ineq_index_list) # 不偏推定のための不等式制約の数。
-    # エラーチェック
+    factors_num = len(levels_list)
+    terms_num = len(model_list)
+    estimators_num = len(estimators_list)
+    candidates_num = np.shape(main_design_mat)[1]
+    eq_const_num = len(estimation_eq_index_list)
+    penalties_num = len(estimation_pen_index_list)
+    ineq_const_num = len(estimation_ineq_index_list)
     if estimators_num != len(list(chain.from_iterable([estimation_eq_index_list, estimation_ineq_index_list, estimation_pen_index_list]))):
-        # estimation_eq_index_list, estimation_ineq_index_list, estimation_pen_index_listに重複があったらエラーにする。
         print("Error!! 0")
     if len(estimation_ineq_index_list) != len(estimation_ineq_win_list):
         print("Error!! 10")
@@ -147,21 +122,17 @@ def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_l
     if estimation_ineq_index_list != []:
         if max(estimation_ineq_index_list) >= terms_num:
             print("Error!! 80")
-    # モデル行列の生成
     model_mat = gen_model_mat(main_design_mat, model_list)
-    ### 2次錘計画問題に定式化
     print("\n\n <<  SOCP  >>\n")
-    # 長さ
-    x_var_num = estimators_num * candidates_num # 推定するための変数の数(各推定量の係数)
-    all_var_num = x_var_num + 2*estimators_num + candidates_num + 2*penalties_num + ineq_const_num # 2次錘計画問題における全変数の数
-    ## 目的関数
-    cvec = [0.]*x_var_num # 各線形推定量の重み
-    cvec.extend([0.]*estimators_num) # 分散(L2, 各推定量の分散の平方根をとったもの)
-    cvec.extend(kappa_weight_list) # 分散(L2, 2次にしたもの)への重み
-    cvec.extend(lambda_weight_list) # L1への重み
-    cvec.extend([0.]*penalties_num) # 不偏推定のペナルティ項(不偏推定のずれの2乗誤差に平方根をとったもの)への重み
-    cvec.extend(estimation_pen_weight_list) # 不偏推定のペナルティ項(不偏推定のずれの2乗誤差)への重み
-    cvec.extend([0.]*ineq_const_num) # 不偏推定の不等式制約
+    x_var_num = estimators_num * candidates_num
+    all_var_num = x_var_num + 2*estimators_num + candidates_num + 2*penalties_num + ineq_const_num
+    cvec = [0.]*x_var_num
+    cvec.extend([0.]*estimators_num)
+    cvec.extend(kappa_weight_list)
+    cvec.extend(lambda_weight_list)
+    cvec.extend([0.]*penalties_num)
+    cvec.extend(estimation_pen_weight_list)
+    cvec.extend([0.]*ineq_const_num)
     cvec = matrix(cvec)
     print("kappa_weight_list")
     print(kappa_weight_list)
@@ -171,18 +142,15 @@ def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_l
     print(estimation_pen_weight_list)
     print("cvec")
     print(cvec)
-    ## L2(分散)とL1(変数選択)
     Gqmat = []
     hqvec = []
-    # 分散(L2)
+    # L2
     for i in range(0, estimators_num):
-        # 分散(L2, 各推定量の分散の平方根をとったもの)
         temp_val_list = [-1]+[1]*candidates_num
         temp_row_list = list(range(0,1+candidates_num))
         temp_col_list = [x_var_num+i]+list(range(i*candidates_num, (i+1)*candidates_num))
         Gqmat += [spmatrix(temp_val_list, temp_row_list, temp_col_list, (candidates_num+1, all_var_num))]
         hqvec += [matrix(spmatrix([], [], [], (candidates_num+1,1)))]
-        # 分散(L2, 2次にしたもの)
         temp_val_list = [-1, -1, 2]
         temp_row_list = [0, 1, 2]
         temp_index_num = x_var_num+estimators_num+i
@@ -196,9 +164,7 @@ def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_l
         temp_col_list = [x_var_num+2*estimators_num+i]+list(range(i, x_var_num, candidates_num))
         Gqmat += [spmatrix(temp_val_list, temp_row_list, temp_col_list, (estimators_num+1, all_var_num))]
         hqvec += [matrix(spmatrix([], [], [], (estimators_num+1,1)))]
-    # 不偏推定の線形制約(ソフトマージン、ペナルティ)
     for i in range(0, penalties_num):
-        # 不偏推定のペナルティ項(不偏推定のずれの2乗誤差に平方根をとったもの)
         temp_val_list = [-1]
         temp_row_list = [0]
         temp_col_list = [x_var_num+2*estimators_num+candidates_num+i]
@@ -210,20 +176,16 @@ def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_l
                 temp_col_list += [temp_index_num*candidates_num+k]
         Gqmat += [spmatrix(temp_val_list, temp_row_list, temp_col_list, (terms_num+1, all_var_num))]
         hqvec += [matrix(spmatrix([1], [estimation_pen_index_list[i]+1], [0], (terms_num+1,1)))]
-        # 不偏推定のペナルティ項(不偏推定のずれの2乗誤差)
         temp_val_list = [-1, -1, 2]
         temp_row_list = [0, 1, 2]
         temp_index_num = x_var_num+2*estimators_num+candidates_num+penalties_num+i
         temp_col_list = [temp_index_num, temp_index_num,x_var_num+2*estimators_num+candidates_num+i]
         Gqmat += [spmatrix(temp_val_list, temp_row_list, temp_col_list, (3, all_var_num))]
         hqvec += [matrix(spmatrix([1,-1], [0,1], [0,0], (3,1)))]
-    # 不偏推定の線形制約(ハードマージン, 不等式)
     Glmat=matrix([])
     hlvec=matrix([])
     if estimation_ineq_index_list != []:
-        # Gq, hq
         for i in range(0, ineq_const_num):
-            # 不偏推定のずれの2乗誤差に平方根をとったもの
             temp_val_list = [-1]
             temp_row_list = [0]
             temp_col_list = [x_var_num+2*estimators_num+candidates_num+2*penalties_num+i]
@@ -235,7 +197,6 @@ def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_l
                     temp_col_list += [temp_index_num*candidates_num+k]
             Gqmat += [spmatrix(temp_val_list, temp_row_list, temp_col_list, (terms_num+1, all_var_num))]
             hqvec += [matrix(spmatrix([1], [estimation_ineq_index_list[i]+1], [0], (terms_num+1,1)))]
-        # Gl, hl
         temp_val_list = []
         temp_row_list = []
         temp_col_list = []
@@ -257,7 +218,6 @@ def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_l
     print(hqvec,"\n")
     for i in range(0, estimators_num):
         print(matrix(hqvec[i]))
-    # 不偏推定の線形制約(ハードマージン, 等式)
     Amat = matrix([])
     bvec = matrix([])
     temp_val_list = []
@@ -284,8 +244,7 @@ def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_l
     print(matrix(Amat))
     print("bvec")
     print(matrix(bvec))
-    # c, Gq, hq, A, b のチェック(ファイル出力), check.csv
-    filename = filepath+"check."+datetime.now().strftime("%Y%m%d%H%M%S")+".csv"
+    filename = filename+".check.csv"
     f = open(filename,"w")
     csvf = csv.writer(f, lineterminator='\n')
     csvf.writerow(["main_design_mat"])
@@ -351,41 +310,35 @@ def socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_l
     for i in range(0, temp_index_num):
         csvf.writerow(temp_mat[i])
     f.close()
-    # SOCP
     if estimation_ineq_index_list != []:
         sol = solvers.socp(c=cvec, Gl=Glmat, hl=hlvec, Gq=Gqmat, hq=hqvec, A=Amat, b=bvec)
     else:
         sol = solvers.socp(c=cvec, Gq=Gqmat, hq=hqvec, A=Amat, b=bvec)
-    # return
     args = {"c":cvec, "Gl":Glmat, "hl":hlvec, "Gq":Gqmat, "hq":hqvec, "A":Amat, "b":bvec}
     model_mat = np.array(model_mat)
     return (model_mat, args, sol)
 
-# L1ノルムがtol以上の実験点を選択する。
-def choose_design_points(model_list, model_mat, estimation_list, sol, tol, filepath):
-    # 各不偏推定に対する制約の種類, 使用するパラメーター
-    estimation_eq_index_list = estimation_list[0] # 不偏性を表す等式制約を課している。model_listの対応する番号を並べたリスト。
-    estimation_pen_index_list = estimation_list[1] # 不偏性からのずれに対してペナルティを課している。model_listの対応する番号を並べたリスト。
-    estimation_pen_weight_list = estimation_list[2] # 不偏性からのずれに対するペナルティへの重みを並べたリスト。
-    estimation_ineq_index_list = estimation_list[3] # 不偏性からのずれに対して不等式制約を課している。model_listの対応する番号を並べたリスト。
-    estimation_ineq_win_list = estimation_list[4] # 不偏性からのずれとして許容する値を並べたリスト。
+def choose_design_points(model_list, model_mat, estimation_list, sol, computation_time, tol, filename):
+    estimation_eq_index_list = estimation_list[0]
+    estimation_pen_index_list = estimation_list[1]
+    estimation_pen_weight_list = estimation_list[2]
+    estimation_ineq_index_list = estimation_list[3]
+    estimation_ineq_win_list = estimation_list[4]
     estimators_list = list(set(list(chain.from_iterable([estimation_eq_index_list, estimation_pen_index_list, estimation_ineq_index_list]))))
     estimators_list.sort()
-    # 長さ
-    factors_num = len(levels_list) # 因子数
-    terms_num = len(model_list) # モデルの式における項の数
-    estimators_num = len(estimators_list) # 推定量の数, 重複除く
-    candidates_num = np.shape(main_design_mat)[1] # 実験点の候補の数
-    eq_const_num = len(estimation_eq_index_list) # 不偏推定のための等式制約の数。
-    penalties_num = len(estimation_pen_index_list) # 不偏推定のためのペナルティ項の数。
-    ineq_const_num = len(estimation_ineq_index_list) # 不偏推定のための不等式制約の数。
-    x_var_num = estimators_num * candidates_num # 推定するための変数の数(各推定量の係数)
-    all_var_num = x_var_num + 2*estimators_num + candidates_num + 2*penalties_num + ineq_const_num # 2次錘計画問題における全変数の数
-    # 出力
+    factors_num = len(levels_list)
+    terms_num = len(model_list)
+    estimators_num = len(estimators_list)
+    candidates_num = np.shape(main_design_mat)[1]
+    eq_const_num = len(estimation_eq_index_list)
+    penalties_num = len(estimation_pen_index_list)
+    ineq_const_num = len(estimation_ineq_index_list)
+    x_var_num = estimators_num * candidates_num
+    all_var_num = x_var_num + 2*estimators_num + candidates_num + 2*penalties_num + ineq_const_num
     temp_mat_a = np.array(sol['x'])
     temp_mat_b = np.array(model_mat)
     design_points_list = []
-    design_mat = np.array([[0.]*terms_num]) # この1列目は後で削除
+    design_mat = np.array([[0.]*terms_num])
     design_mat = design_mat.reshape((terms_num,1))
     for i in range(0, candidates_num):
         if abs(temp_mat_a[x_var_num+2*estimators_num+i]) > tol:
@@ -395,6 +348,8 @@ def choose_design_points(model_list, model_mat, estimation_list, sol, tol, filep
             design_mat = np.hstack([design_mat, temp_mat_c])
     design_mat = design_mat[:,1:]
     design_points_num = len(design_points_list)
+    print("\ncomputation_time:")
+    print(computation_time)
     print("\ntol:")
     print(tol)
     print("\nsol.keys:")
@@ -415,10 +370,11 @@ def choose_design_points(model_list, model_mat, estimation_list, sol, tol, filep
     print("\ndesign_mat:")
     print(design_mat)
     print("\n")
-    # sol.csv
-    filename = filepath+"sol"+datetime.now().strftime("%Y%m%d%H%M%S")+".csv"
+    filename = filename+".sol.csv"
     f = open(filename,"w")
     csvf = csv.writer(f, lineterminator='\n')
+    csvf.writerow(["computation_time"])
+    csvf.writerow([computation_time])
     csvf.writerow(["tol"])
     csvf.writerow([tol])
     csvf.writerow(["design_points_list"])
@@ -478,7 +434,6 @@ def choose_design_points(model_list, model_mat, estimation_list, sol, tol, filep
     for i in range(0, temp_index_num):
         csvf.writerow(temp_mat[i])
     f.close()
-    # return
     model_mat = np.array(model_mat)
     design_mat = np.array(design_mat)
     return (design_points_list, design_mat)
@@ -487,23 +442,95 @@ def choose_design_points(model_list, model_mat, estimation_list, sol, tol, filep
 ################################################################################
 ################################################################################
 
-#### Demo: generating the L8 orthogonal array
 
+filepath = "/home" # path for the output file
+
+#### Demo: generating the L4 orthogonal array (Example 4)
+t0 = time.clock()
 ## setup parameters
-levels_list = [ [-1., 1.], [-1., 1.], [-1., 1.], [-1., 1.] ] # x0,...,x3: 2-levels(-1 or 1)
-model_list = [ [], [0], [1], [2], [3], [0,1], [0,2], [0,3] ] # y = a + b0*x0 + b1*x1 + b2*x2 + b3*x3 + b01*x0*x1 + b02*x0*x2 + b03*x0*x3 + eps
-estimation_eq_index_list = [1,2,3,4,5,6,7] # equality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint), (b0,...,b03)
+levels_list = [ [1., -1.], [1., -1.], [1., -1.] ] # [ [-1., 1.], [-1., 1.], [-1., 1.] ] # x0,x1,x2: 2-levels(-1 or 1)
+model_list = [ [], [0], [1], [2] ] # y = a + b0*x0 + b1*x1 + b2*x2 + eps
+estimation_eq_index_list = [1,2,3] # equality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint), (b0,...,b03)
 estimation_pen_index_list = [] # pealities for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
 estimation_pen_weight_list = [] # pealities for unbiased estimators
 estimation_ineq_index_list = [] # inequality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
 estimation_ineq_win_list = [] # inequality constraints for unbiased estimators
 estimation_list = [estimation_eq_index_list, estimation_pen_index_list, estimation_pen_weight_list, estimation_ineq_index_list, estimation_ineq_win_list]
-kappa_weight_list = [1]*7 # weights for the squared losses of unbiased estimators
+kappa_weight_list = [1.]*3 # weights for the squared losses of unbiased estimators
 tol = 1.e-6 # cut off point
-filepath = "" # path for the output file
-
 ## optimization
 main_design_mat = gen_main_design_mat(levels_list) # candidate design points
-lambda_weight_list = gen_lambda_weight_list(main_design_mat, 10) # weights for L1 norms
-(model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filepath)
-(design_points_list, design_mat) = choose_design_points(model_list, model_mat, estimation_list, sol, tol, filepath)
+lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
+# lambda_weight_list = []
+filename = filepath+"/explasso.L4."+datetime.now().strftime("%Y%m%d%H%M%S")
+(model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
+t1 = time.clock()
+computation_time = str(t1-t0)+"[s]"
+(design_points_list, design_mat) = choose_design_points(model_list, model_mat, estimation_list, sol, computation_time, tol, filename)
+
+# #### Demo: generating the L8 orthogonal array (Example 5)
+# t0 = time.clock()
+# ## setup parameters
+# levels_list = [ [1., -1.], [1., -1.], [1., -1.], [1., -1.] ] # [ [-1., 1.], [-1., 1.], [-1., 1.], [-1., 1.] ] # x0,...,x3: 2-levels(-1 or 1)
+# model_list = [ [], [0], [1], [2], [3], [0,1], [0,2], [0,3] ] # y = a + b0*x0 + b1*x1 + b2*x2 + b3*x3 + b01*x0*x1 + b02*x0*x2 + b03*x0*x3 + eps
+# estimation_eq_index_list = [1,2,3,4,5,6,7] # equality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint), (b0,...,b03)
+# estimation_pen_index_list = [] # pealities for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+# estimation_pen_weight_list = [] # pealities for unbiased estimators
+# estimation_ineq_index_list = [] # inequality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+# estimation_ineq_win_list = [] # inequality constraints for unbiased estimators
+# estimation_list = [estimation_eq_index_list, estimation_pen_index_list, estimation_pen_weight_list, estimation_ineq_index_list, estimation_ineq_win_list]
+# kappa_weight_list = [1.]*7 # weights for the squared losses of unbiased estimators
+# tol = 1.e-6 # cut off point
+# ## optimization
+# main_design_mat = gen_main_design_mat(levels_list) # candidate design points
+# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
+# # lambda_weight_list = [0.,61.4626437,61.4626437,0.,61.4626437,0.,0.,61.4626437,61.4626437,20.,40.,61.4626437,60.,61.4626437,61.4626437,80.]
+# filename = filepath+"/explasso.L8."+datetime.now().strftime("%Y%m%d%H%M%S")
+# (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
+# t1 = time.clock()
+# computation_time = str(t1-t0)+"[s]"
+# (design_points_list, design_mat) = choose_design_points(model_list, model_mat, estimation_list, sol, computation_time, tol, filename)
+
+# #### Demo: generating the L8+ array (Example 6)
+# t0 = time.clock()
+# ## setup parameters
+# levels_list = [ [1., -1.], [1., -1.], [1., -1.], [1., -1.] ] # [ [-1., 1.], [-1., 1.], [-1., 1.], [-1., 1.] ] # x0,...,x3: 2-levels(-1 or 1)
+# model_list = [ [], [0], [1], [2], [3], [0,1], [0,2], [0,3], [1,2] ] # y = a + b0*x0 + b1*x1 + b2*x2 + b3*x3 + b01*x0*x1 + b02*x0*x2 + b03*x0*x3 + eps
+# estimation_eq_index_list = [1,2,3,4,5,6,7,8] # equality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint), (b0,...,b03)
+# estimation_pen_index_list = [] # pealities for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+# estimation_pen_weight_list = [] # pealities for unbiased estimators
+# estimation_ineq_index_list = [] # inequality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+# estimation_ineq_win_list = [] # inequality constraints for unbiased estimators
+# estimation_list = [estimation_eq_index_list, estimation_pen_index_list, estimation_pen_weight_list, estimation_ineq_index_list, estimation_ineq_win_list]
+# kappa_weight_list = [1.]*8 # weights for the squared losses of unbiased estimators
+# tol = 1.e-6 # cut off point
+# ## optimization
+# main_design_mat = gen_main_design_mat(levels_list) # candidate design points
+# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
+# filename = filepath+"/explasso.L8plus."+datetime.now().strftime("%Y%m%d%H%M%S")
+# (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
+# t1 = time.clock()
+# computation_time = str(t1-t0)+"[s]"
+# (design_points_list, design_mat) = choose_design_points(model_list, model_mat, estimation_list, sol, computation_time, tol, filename)
+
+# #### Demo: 1-10 factors having 2 levels
+# t0 = time.clock()
+# ## setup parameters
+# levels_list = [ [1., -1.] ] # [ [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.] ] # x0,...,x?: 2-levels(1 or -1)
+# model_list =  [ [], [0]] # [ [], [0], [1], [2], [3], [4], [5], [6], [7], [8], [9]] # y = a + b0*x0 + b1*x1 + b2*x2 + ... + b?*x? + eps
+# estimation_eq_index_list = [1] # equality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint), (b0,...,b03)
+# estimation_pen_index_list = [] # pealities for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+# estimation_pen_weight_list = [] # pealities for unbiased estimators
+# estimation_ineq_index_list = [] # inequality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+# estimation_ineq_win_list = [] # inequality constraints for unbiased estimators
+# estimation_list = [estimation_eq_index_list, estimation_pen_index_list, estimation_pen_weight_list, estimation_ineq_index_list, estimation_ineq_win_list]
+# kappa_weight_list = [1.]*1 # weights for the squared losses of unbiased estimators
+# tol = 1.e-6 # cut off point
+# ## optimization
+# main_design_mat = gen_main_design_mat(levels_list) # candidate design points
+# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
+# filename = filepath+"/explasso.1-10fators2levels."+datetime.now().strftime("%Y%m%d%H%M%S")
+# (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
+# t1 = time.clock()
+# computation_time = str(t1-t0)+"[s]"
+# (design_points_list, design_mat) = choose_design_points(model_list, model_mat, estimation_list, sol, computation_time, tol, filename)
