@@ -1,5 +1,5 @@
 ## ExpLasso (The Group Lasso for Design of Experiments)
-## tanaken (Kentaro TANAKA, 2016.02-)
+## tanaken ( Kentaro TANAKA, 2016.02- )
 ## Use this program at your own risk.
 
 ################################################################################
@@ -443,16 +443,16 @@ def choose_design_points(model_list, model_mat, estimation_list, sol, computatio
 ################################################################################
 
 
-filepath = "/home" # path for the output file
+filepath = "./" # "/home" # path to the output file
 
 #### Demo: generating the L4 orthogonal array (Example 4)
-t0 = time.clock()
+t0 = time.time()
 ## setup parameters
 levels_list = [ [1., -1.], [1., -1.], [1., -1.] ] # [ [-1., 1.], [-1., 1.], [-1., 1.] ] # x0,x1,x2: 2-levels(-1 or 1)
 model_list = [ [], [0], [1], [2] ] # y = a + b0*x0 + b1*x1 + b2*x2 + eps
 estimation_eq_index_list = [1,2,3] # equality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint), (b0,...,b03)
-estimation_pen_index_list = [] # pealities for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
-estimation_pen_weight_list = [] # pealities for unbiased estimators
+estimation_pen_index_list = [] # penalties for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+estimation_pen_weight_list = [] # penalties for unbiased estimators
 estimation_ineq_index_list = [] # inequality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
 estimation_ineq_win_list = [] # inequality constraints for unbiased estimators
 estimation_list = [estimation_eq_index_list, estimation_pen_index_list, estimation_pen_weight_list, estimation_ineq_index_list, estimation_ineq_win_list]
@@ -464,18 +464,18 @@ lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # w
 # lambda_weight_list = []
 filename = filepath+"/explasso.L4."+datetime.now().strftime("%Y%m%d%H%M%S")
 (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
-t1 = time.clock()
+t1 = time.time()
 computation_time = str(t1-t0)+"[s]"
 (design_points_list, design_mat) = choose_design_points(model_list, model_mat, estimation_list, sol, computation_time, tol, filename)
 
 # #### Demo: generating the L8 orthogonal array (Example 5)
-# t0 = time.clock()
+# t0 = time.time()
 # ## setup parameters
 # levels_list = [ [1., -1.], [1., -1.], [1., -1.], [1., -1.] ] # [ [-1., 1.], [-1., 1.], [-1., 1.], [-1., 1.] ] # x0,...,x3: 2-levels(-1 or 1)
 # model_list = [ [], [0], [1], [2], [3], [0,1], [0,2], [0,3] ] # y = a + b0*x0 + b1*x1 + b2*x2 + b3*x3 + b01*x0*x1 + b02*x0*x2 + b03*x0*x3 + eps
 # estimation_eq_index_list = [1,2,3,4,5,6,7] # equality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint), (b0,...,b03)
-# estimation_pen_index_list = [] # pealities for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
-# estimation_pen_weight_list = [] # pealities for unbiased estimators
+# estimation_pen_index_list = [] # penalties for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+# estimation_pen_weight_list = [] # penalties for unbiased estimators
 # estimation_ineq_index_list = [] # inequality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
 # estimation_ineq_win_list = [] # inequality constraints for unbiased estimators
 # estimation_list = [estimation_eq_index_list, estimation_pen_index_list, estimation_pen_weight_list, estimation_ineq_index_list, estimation_ineq_win_list]
@@ -487,18 +487,18 @@ computation_time = str(t1-t0)+"[s]"
 # # lambda_weight_list = [0.,61.4626437,61.4626437,0.,61.4626437,0.,0.,61.4626437,61.4626437,20.,40.,61.4626437,60.,61.4626437,61.4626437,80.]
 # filename = filepath+"/explasso.L8."+datetime.now().strftime("%Y%m%d%H%M%S")
 # (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
-# t1 = time.clock()
+# t1 = time.time()
 # computation_time = str(t1-t0)+"[s]"
 # (design_points_list, design_mat) = choose_design_points(model_list, model_mat, estimation_list, sol, computation_time, tol, filename)
 
 # #### Demo: generating the L8+ array (Example 6)
-# t0 = time.clock()
+# t0 = time.time()
 # ## setup parameters
 # levels_list = [ [1., -1.], [1., -1.], [1., -1.], [1., -1.] ] # [ [-1., 1.], [-1., 1.], [-1., 1.], [-1., 1.] ] # x0,...,x3: 2-levels(-1 or 1)
 # model_list = [ [], [0], [1], [2], [3], [0,1], [0,2], [0,3], [1,2] ] # y = a + b0*x0 + b1*x1 + b2*x2 + b3*x3 + b01*x0*x1 + b02*x0*x2 + b03*x0*x3 + eps
 # estimation_eq_index_list = [1,2,3,4,5,6,7,8] # equality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint), (b0,...,b03)
-# estimation_pen_index_list = [] # pealities for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
-# estimation_pen_weight_list = [] # pealities for unbiased estimators
+# estimation_pen_index_list = [] # penalties for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+# estimation_pen_weight_list = [] # penalties for unbiased estimators
 # estimation_ineq_index_list = [] # inequality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
 # estimation_ineq_win_list = [] # inequality constraints for unbiased estimators
 # estimation_list = [estimation_eq_index_list, estimation_pen_index_list, estimation_pen_weight_list, estimation_ineq_index_list, estimation_ineq_win_list]
@@ -509,18 +509,18 @@ computation_time = str(t1-t0)+"[s]"
 # lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
 # filename = filepath+"/explasso.L8plus."+datetime.now().strftime("%Y%m%d%H%M%S")
 # (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
-# t1 = time.clock()
+# t1 = time.time()
 # computation_time = str(t1-t0)+"[s]"
 # (design_points_list, design_mat) = choose_design_points(model_list, model_mat, estimation_list, sol, computation_time, tol, filename)
 
 # #### Demo: 1-10 factors having 2 levels
-# t0 = time.clock()
+# t0 = time.time()
 # ## setup parameters
 # levels_list = [ [1., -1.] ] # [ [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.], [1., -1.] ] # x0,...,x?: 2-levels(1 or -1)
 # model_list =  [ [], [0]] # [ [], [0], [1], [2], [3], [4], [5], [6], [7], [8], [9]] # y = a + b0*x0 + b1*x1 + b2*x2 + ... + b?*x? + eps
 # estimation_eq_index_list = [1] # equality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint), (b0,...,b03)
-# estimation_pen_index_list = [] # pealities for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
-# estimation_pen_weight_list = [] # pealities for unbiased estimators
+# estimation_pen_index_list = [] # penalties for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
+# estimation_pen_weight_list = [] # penalties for unbiased estimators
 # estimation_ineq_index_list = [] # inequality constraints for unbiased estimators ('estimation_*_index_list's must be mutually disjoint)
 # estimation_ineq_win_list = [] # inequality constraints for unbiased estimators
 # estimation_list = [estimation_eq_index_list, estimation_pen_index_list, estimation_pen_weight_list, estimation_ineq_index_list, estimation_ineq_win_list]
@@ -531,6 +531,6 @@ computation_time = str(t1-t0)+"[s]"
 # lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
 # filename = filepath+"/explasso.1-10fators2levels."+datetime.now().strftime("%Y%m%d%H%M%S")
 # (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
-# t1 = time.clock()
+# t1 = time.time()
 # computation_time = str(t1-t0)+"[s]"
 # (design_points_list, design_mat) = choose_design_points(model_list, model_mat, estimation_list, sol, computation_time, tol, filename)
