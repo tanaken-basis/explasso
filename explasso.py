@@ -6,6 +6,7 @@
 ################################################################################
 ################################################################################
 
+import random
 import time
 import csv
 import copy
@@ -62,27 +63,31 @@ def gen_proj_mat(mat):
     pinv_norm_mat = np.linalg.pinv(np.dot(mat.T, mat))
     return np.dot(mat, np.dot(pinv_norm_mat, mat.T))
 
-def gen_lambda_weight_list(main_design_mat, model_list, scale_num):
+def gen_lambda_weight_list(main_design_mat, model_list, scale_num, rand=False):
     model_mat = gen_model_mat(main_design_mat, model_list)
     input_mat = model_mat
     terms_num = np.shape(input_mat)[0]
     candidates_num = np.shape(input_mat)[1]
     lambda_weight_list = [0.]*candidates_num
-    subspace_index_list = [0]
-    compspace_index_list = list(range(1, candidates_num))
-    for i in range(0, terms_num):
-        temp_mat = input_mat[:,subspace_index_list]
-        temp_mat = gen_proj_mat(temp_mat)
-        dist_list = np.repeat(0., len(compspace_index_list))
-        for j in range(0, len(compspace_index_list)):
-            temp_vec = (input_mat[:,compspace_index_list[j]]).reshape(terms_num,1)
-            dist_list[j] = np.linalg.norm(np.dot( temp_mat, temp_vec ))
-            dist_list[j] = dist_list[j]*dist_list[j]
-            lambda_weight_list[compspace_index_list[j]] = lambda_weight_list[compspace_index_list[j]] + dist_list[j]
-        if i != terms_num-1:
-            temp_index_num = compspace_index_list[np.argmin(dist_list)]
-            subspace_index_list.extend([temp_index_num])
-            compspace_index_list.remove(temp_index_num)
+    if rand:
+        for i in range(0, candidates_num):
+            lambda_weight_list[i] = random.uniform(0, 1)
+    else:
+        subspace_index_list = [0]
+        compspace_index_list = list(range(1, candidates_num))
+        for i in range(0, terms_num):
+            temp_mat = input_mat[:,subspace_index_list]
+            temp_mat = gen_proj_mat(temp_mat)
+            dist_list = np.repeat(0., len(compspace_index_list))
+            for j in range(0, len(compspace_index_list)):
+                temp_vec = (input_mat[:,compspace_index_list[j]]).reshape(terms_num,1)
+                dist_list[j] = np.linalg.norm(np.dot( temp_mat, temp_vec ))
+                dist_list[j] = dist_list[j]*dist_list[j]
+                lambda_weight_list[compspace_index_list[j]] = lambda_weight_list[compspace_index_list[j]] + dist_list[j]
+            if i != terms_num-1:
+                temp_index_num = compspace_index_list[np.argmin(dist_list)]
+                subspace_index_list.extend([temp_index_num])
+                compspace_index_list.remove(temp_index_num)
     lambda_weight_list = [scale_num*x for x in lambda_weight_list]
     return lambda_weight_list
 
@@ -438,6 +443,7 @@ def choose_design_points(model_list, model_mat, estimation_list, sol, computatio
     design_mat = np.array(design_mat)
     return (design_points_list, design_mat)
 
+
 ################################################################################
 ################################################################################
 ################################################################################
@@ -460,7 +466,8 @@ kappa_weight_list = [1.]*3 # weights for the squared losses of unbiased estimato
 tol = 1.e-6 # cut off point
 ## optimization
 main_design_mat = gen_main_design_mat(levels_list) # candidate design points
-lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
+lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1., rand=False) # weights for L1 norms
+# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1000., rand=True) # weights for L1 norms
 # lambda_weight_list = []
 filename = filepath+"/explasso.L4."+datetime.now().strftime("%Y%m%d%H%M%S")
 (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
@@ -483,7 +490,7 @@ computation_time = str(t1-t0)+"[s]"
 # tol = 1.e-6 # cut off point
 # ## optimization
 # main_design_mat = gen_main_design_mat(levels_list) # candidate design points
-# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
+# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1., rand=False) # weights for L1 norms
 # # lambda_weight_list = [0.,61.4626437,61.4626437,0.,61.4626437,0.,0.,61.4626437,61.4626437,20.,40.,61.4626437,60.,61.4626437,61.4626437,80.]
 # filename = filepath+"/explasso.L8."+datetime.now().strftime("%Y%m%d%H%M%S")
 # (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
@@ -506,7 +513,7 @@ computation_time = str(t1-t0)+"[s]"
 # tol = 1.e-6 # cut off point
 # ## optimization
 # main_design_mat = gen_main_design_mat(levels_list) # candidate design points
-# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
+# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1., rand=False) # weights for L1 norms
 # filename = filepath+"/explasso.L8plus."+datetime.now().strftime("%Y%m%d%H%M%S")
 # (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
 # t1 = time.time()
@@ -528,7 +535,7 @@ computation_time = str(t1-t0)+"[s]"
 # tol = 1.e-6 # cut off point
 # ## optimization
 # main_design_mat = gen_main_design_mat(levels_list) # candidate design points
-# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1.) # weights for L1 norms
+# lambda_weight_list = gen_lambda_weight_list(main_design_mat, model_list, 1., rand=False) # weights for L1 norms
 # filename = filepath+"/explasso.1-10fators2levels."+datetime.now().strftime("%Y%m%d%H%M%S")
 # (model_mat, args, sol) = socp_for_design(main_design_mat, model_list, estimation_list, kappa_weight_list, lambda_weight_list, filename)
 # t1 = time.time()
