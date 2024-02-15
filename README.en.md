@@ -7,8 +7,8 @@ This is a program in Python to generate an experimental design by using a sparse
 
 ## Usage
 - Without a Python runtime environment
-    - On Windows, download "[explasso_gradio_win.7z](explasso_gradio_win.7z)" and decompress it, double-click "explasso_gradio.exe" to start the web application for automatically generating experimental designs. It may take 2-3 minutes to start the web application. This web application runs on a local machine.
-    - On Mac (Apple silicon), download "[explasso_gradio_mac.7z](explasso_gradio_mac.7z)" and decompress it, double-click "explasso_gradio" to start the web application for automatically generating experimental designs. It may take 2-3 minutes to start the web application. This web application runs on a local machine.
+    - On Windows, download "[explasso_gradio_win.7z](https://github.com/tanaken-basis/explasso/raw/master/explasso_gradio_win.7z)" and decompress it, double-click "explasso_gradio.exe" to start the web application for automatically generating experimental designs. It may take 2-3 minutes to start the web application. This web application runs on a local machine.
+    - On Mac (Apple silicon), download "[explasso_gradio_mac.7z](https://github.com/tanaken-basis/explasso/raw/master/explasso_gradio_mac.7z)" and decompress it, double-click "explasso_gradio" to start the web application for automatically generating experimental designs. It may take 2-3 minutes to start the web application. This web application runs on a local machine.
 - Using Python programs
     - Running "explasso.py" in Python generates your experimental design automatically. It saves the results as a CSV file. There is also a program written in a notebook called "explasso.ipynb".
     - By running "otg_gradio.py" in Python, you can start the web application created by Gradio for automatically generating experimental designs. You can adjust parameters for automated generation, execute calculations to generate results, and save calculated results to files. This web application can be run on a local machine.
